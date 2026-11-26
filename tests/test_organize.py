@@ -93,6 +93,16 @@ class OrganizeTest(unittest.TestCase):
         self.assertEqual(calls, ["a.txt", "b.txt"])
         self.assertEqual([r["name"] for r in rows], ["b.txt"])
 
+    def test_plan_stores_redacted_summary_and_keywords(self):
+        (self.watch / "statement.pdf").write_text("pdf")
+        res = {"topic": "finance", "summary": "Bank statement for IBAN DE89 3704 0044 0532 0130 00 from 03/2024",
+               "keywords": ["bank statement", "DE89370400440532013000", "card 4111 1111 1111 1111"],
+               "confidence": 0.9, "source_url": None}
+        with mock.patch.object(organize, "classify", return_value=res):
+            row = organize.plan(self.cfg, self.store, verbose=False)[0]
+        self.assertEqual(row["summary"], "Bank statement for IBAN [redacted] from 03/2024")
+        self.assertEqual(row["keywords"], "bank statement, card [redacted]")
+
     def test_set_topic_same_folder_does_not_rename_and_missing_or_undone_fail_cleanly(self):
         f = self.watch / "invoice.pdf"
         f.write_text("pdf")
@@ -120,6 +130,40 @@ class OrganizeTest(unittest.TestCase):
         self.store.commit()
         with self.assertRaises(SystemExit):
             organize.set_topic(self.cfg, self.store, fid, "work")
+
+
+class RedactTest(unittest.TestCase):
+    def test_redacts_ibans_and_long_numbers(self):
+        cases = {
+            "IBAN DE89 3704 0044 0532 0130 00": "IBAN [redacted]",
+            "IBAN DE89370400440532013000.": "IBAN [redacted].",
+            "GB29 NWBK 6016 1331 9268 19 (Barclays)": "[redacted] (Barclays)",
+            "NO93 8601 1117 947": "[redacted]",
+            "IBAN DE89 3704 0044 0532 0130 00 BICX": "IBAN [redacted] BICX",  # stops where the valid IBAN ends
+            "Card 4111 1111 1111 1111": "Card [redacted]",
+            "Card 4111-1111-1111-1111": "Card [redacted]",
+            "Tax ID 12 345 678 901": "Tax ID [redacted]",
+            "Tax number 123/456/78901": "Tax number [redacted]",
+            "SSN 123-45-6789": "SSN [redacted]",
+            "Account 1234567890, closed": "Account [redacted], closed",
+            "Phone +49 30 12345678": "Phone [redacted]",
+        }
+        for text, expected in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(organize.redact(text), expected)
+
+    def test_keeps_dates_years_amounts_and_short_numbers(self):
+        for text in ("Invoice RE-2024-00123 from 15.03.2024 over 1.250,00 EUR",
+                     "Tax returns 2022 2023 2024", "Period 2024-01-01 to 2024-12-31",
+                     "Contract 2019-2024, 12 pages", "Amount 1,234,567.89 USD", "Amount 123456789.50",
+                     "iPhone 15 Pro 256 GB", "ISO 9001 2015 certificate", "Order 12345678",
+                     "DE89 3704 is too short for an IBAN"):
+            with self.subTest(text=text):
+                self.assertEqual(organize.redact(text), text)
+
+    def test_keywords_that_were_only_a_number_are_dropped(self):
+        self.assertEqual(organize.redact_keywords(["invoice", "4111 1111 1111 1111", "account 1234567890", 2024]),
+                         ["invoice", "account [redacted]", "2024"])
 
 
 class ExtractAndChromeTest(unittest.TestCase):
