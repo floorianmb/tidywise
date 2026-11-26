@@ -5,8 +5,10 @@
 import io
 import json
 import os
+import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 from unittest import mock
 
@@ -32,11 +34,14 @@ class McpTest(unittest.TestCase):
         file_id = store.add_planned(orig_path="/tmp/a.pdf", name="Invoice_hosting.pdf", ext=".pdf", size=1, mtime=1.0,
                                     topic="finance", new_topic=None, summary="Invoice for 100% web_hosting.",
                                     keywords=["invoice", "hosting"], source_url=None, confidence=0.9)
-        store.update_file(file_id, status="moved", moved_at=now_iso(),
-                          cur_path=str(self.cfg.topics_dir / "finance" / "Invoice_hosting.pdf"))
+        self.invoice = self.cfg.topics_dir / "finance" / "Invoice_hosting.pdf"
+        self.invoice.parent.mkdir(parents=True, exist_ok=True)
+        self.invoice.touch()
+        store.update_file(file_id, status="moved", moved_at=now_iso(), cur_path=str(self.invoice))
         store.upsert_link("https://example.com/lisbon", "Lisbon in three days", "example.com", "travel", now_iso(), now_iso(), 2)
         store.add_search("lisbon sights", now_iso())
         store.commit()
+        store.db.close()
 
     def tearDown(self):
         self.dir.cleanup()
@@ -118,6 +123,17 @@ class McpTest(unittest.TestCase):
         for part in ("Files sorted:", "Invoice_hosting.pdf", "Pages read:", "Searched for:", "lisbon sights"):
             self.assertIn(part, text)
         self.assertNotIn("Pages read:", self.call("recent", kind="files")[0])
+
+    def test_search_and_recent_flag_files_moved_or_deleted_outside_tidywise(self):
+        self.invoice.rename(self.invoice.with_suffix(".moved"))
+        with closing(sqlite3.connect(self.cfg.db_path.as_uri() + "?mode=ro", uri=True)) as con:
+            con.row_factory = sqlite3.Row
+            for tool, args in ((mcp.tool_search, {"query": "invoice"}), (mcp.tool_recent, {"kind": "files"})):
+                with self.subTest(tool=tool.__name__):
+                    text = tool(self.cfg, con, args)
+                    self.assertIn("Invoice_hosting.pdf", text)
+                    self.assertIn("file unavailable at its indexed location", text)
+                    self.assertNotIn(" → ", text)
 
     def test_serve_reads_and_writes_one_message_per_line(self):
         requests = "\n".join(json.dumps(m) for m in (

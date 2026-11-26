@@ -25,7 +25,8 @@ INSTRUCTIONS = (
     "Tidywise is the user's local archive on this Mac: files it has sorted into topic folders (with a one-line "
     "summary each) and, if the user turned it on, pages from their browser history. Use it only when the user "
     "asks about their own files, downloads or what they read. Results include paths you can open with your own "
-    "file tools. Never open or search the private folder (_private or _privat)."
+    "file tools. Files moved or deleted outside Tidywise may still be indexed, but unavailable files are "
+    "flagged and have no openable path. Never open or search the private folder (_private or _privat)."
 )
 
 TOOLS = [
@@ -123,10 +124,16 @@ def _is_inbox(cur_path: str | None) -> bool:
 
 
 def _file_line(r: sqlite3.Row) -> str:
-    inbox = _is_inbox(r["cur_path"])
+    path = r["cur_path"]
+    inbox = _is_inbox(path)
     keywords = f" [{r['keywords']}]" if r["keywords"] else ""
+    try:
+        available = bool(path) and Path(path).is_file()
+    except OSError:
+        available = False
+    location = f" → {_short(path)}" if available else " (file unavailable at its indexed location)"
     return (f"#{r['id']} {'inbox' if inbox else r['topic']} · {(r['moved_at'] or '')[:10]} · {r['name']} — "
-            f"{r['summary']}{keywords} → {_short(r['cur_path'])}")
+            f"{r['summary']}{keywords}{location}")
 
 
 def _link_line(r: sqlite3.Row) -> str:
