@@ -5,6 +5,7 @@
 import io
 import json
 import os
+import re
 import sqlite3
 import tempfile
 import unittest
@@ -193,6 +194,95 @@ class AssistantsTest(unittest.TestCase):
             with self.assertRaises(assistants.AssistantError) as ctx:
                 oc.remove("/usr/bin/true")
             self.assertIn("opencode.jsonc", str(ctx.exception))
+
+
+    def config_client(self, td: str, cls=assistants.ConfigFileClient, key: str = "mcpServers"):
+        return cls("cursor", "Cursor", Path(td) / "app" / "mcp.json", key, ("NoSuchApp.app",))
+
+    def test_config_file_client_adds_and_removes_only_its_entry(self):
+        with tempfile.TemporaryDirectory() as td, mock.patch.dict(os.environ, {"TIDYWISE_CLI": "/bin/echo"}):
+            c = self.config_client(td)
+            self.assertFalse(c.installed, "no app and no settings folder")
+            c.config.parent.mkdir()
+            self.assertTrue(c.installed, "its settings folder counts")
+            self.assertFalse(c.connected())
+            c.register(assistants.server_command())  # file does not exist yet
+            self.assertEqual(json.loads(c.config.read_text()),
+                             {"mcpServers": {"tidywise": {"command": "/bin/echo", "args": ["mcp"]}}})
+            self.assertTrue(c.connected())
+            c.unregister()
+            self.assertFalse(c.connected())
+
+            other = {"mcpServers": {"github": {"command": "gh-mcp", "args": []}}, "theme": "dark"}
+            c.config.write_text(json.dumps(other, indent=4))
+            c.register(["/new/tidywise", "mcp"])
+            c.register(["/newer/tidywise", "mcp"])  # replaces, never duplicates
+            data = json.loads(c.config.read_text())
+            self.assertEqual(data["mcpServers"]["tidywise"], {"command": "/newer/tidywise", "args": ["mcp"]})
+            self.assertEqual(data["mcpServers"]["github"], other["mcpServers"]["github"])
+            self.assertEqual(data["theme"], "dark")
+            c.unregister()
+            self.assertEqual(json.loads(c.config.read_text()), other)
+            self.assertEqual(os.listdir(c.config.parent), ["mcp.json"], "no temporary file left behind")
+
+    def test_zed_settings_keep_comments_and_trailing_commas(self):
+        with tempfile.TemporaryDirectory() as td:
+            c = self.config_client(td, assistants.Zed, "context_servers")
+            c.config.parent.mkdir()
+            original = ('// Zed settings\n{\n  "theme": "One Dark", // my favourite\n'
+                        '  /* fonts */ "buffer_font_size": 15,\n}\n')
+            c.config.write_text(original)
+            c.register(["/x/tidywise", "mcp"])
+            text = c.config.read_text()
+            for part in ("// Zed settings", "// my favourite", "/* fonts */", '"context_servers"'):
+                self.assertIn(part, text)
+            self.assertTrue(c.connected())
+            stripped = re.sub(r",(\s*[}\]])", r"\1", assistants._strip_jsonc_comments(text))
+            self.assertEqual(json.loads(stripped)["context_servers"]["tidywise"],
+                             {"command": "/x/tidywise", "args": ["mcp"], "env": {}})
+            c.unregister()
+            self.assertFalse(c.connected())
+            self.assertIn("// my favourite", c.config.read_text())
+
+            existing = '{\n  "context_servers": {\n    "other": {"command": "o"}, // keep\n  },\n}\n'
+            c.config.write_text(existing)
+            c.register(["/x/tidywise", "mcp"])
+            c.unregister()
+            self.assertEqual(c.config.read_text(), existing, "back to exactly what it was")
+
+    def test_config_file_client_leaves_broken_settings_alone(self):
+        with tempfile.TemporaryDirectory() as td:
+            c = self.config_client(td)
+            c.config.parent.mkdir()
+            for broken in ('{"mcpServers": {', '{"mcpServers": []}', '[1, 2]'):
+                with self.subTest(broken=broken):
+                    c.config.write_text(broken)
+                    with self.assertRaises(assistants.AssistantError):
+                        c.register(["/x/tidywise", "mcp"])
+                    self.assertEqual(c.config.read_text(), broken)
+
+    def test_jsonc_edits(self):
+        cases = [
+            ("", ["a", "b"], 1, {"a": {"b": 1}}),
+            ("{}", ["a"], [1], {"a": [1]}),
+            ('{"a": {"x": "}"}}', ["a", "b"], True, {"a": {"b": True, "x": "}"}}),
+            ('{"a": {"b": {"old": 1}}}', ["a", "b"], None, {"a": {"b": None}}),
+        ]
+        for text, keys, value, expected in cases:
+            with self.subTest(text=text):
+                out = assistants.jsonc_put(text, keys, value)
+                self.assertEqual(json.loads(out), expected)
+                self.assertTrue(assistants.jsonc_has(out, keys))
+                removed = json.loads(assistants.jsonc_remove(out, keys))
+                self.assertNotIn(keys[-1], removed if len(keys) == 1 else removed[keys[0]])
+        self.assertEqual(assistants.jsonc_remove('{"a": 1}', ["x", "y"]), '{"a": 1}')
+        self.assertFalse(assistants.jsonc_has("", ["a"]))
+        with self.assertRaises(ValueError):
+            assistants.jsonc_has('{"a": 1}', ["a", "b"])
+
+    def test_every_client_is_listed_in_status(self):
+        ids = [c["id"] for c in assistants.status()["clients"]]
+        self.assertEqual(ids, ["claude", "codex", "opencode", "claude-desktop", "cursor", "windsurf", "zed"])
 
 
 if __name__ == "__main__":

@@ -224,7 +224,7 @@ def cmd_mcp(args) -> None:
               f"{'' if mcp.app_is_open(cfg) else '   – the Tidywise app is closed, so the server will not answer'}")
         for c in data["clients"]:
             state = "connected" if c["connected"] else ("not connected" if c["installed"] else "not installed")
-            print(f"  {c['title']:<12} {state}")
+            print(f"  {c['title']:<15} {state}")
         print(f"\nConnect one:  tidywise mcp add <{'|'.join(c['id'] for c in data['clients'])}>")
         print(f"Anything else: add this to its MCP settings\n{data['snippet']}")
 
@@ -317,7 +317,7 @@ def main(argv=None) -> None:
     p.add_argument("action", choices=["install", "uninstall", "status"])
     p = sub.add_parser("mcp", help="MCP server for AI assistants, and connecting them (tidywise mcp add claude)")
     p.add_argument("action", nargs="?", default="serve", choices=["serve", "add", "remove", "status"])
-    p.add_argument("client", nargs="?", help="with add/remove: claude, codex or opencode")
+    p.add_argument("client", nargs="?", help="with add/remove: " + ", ".join(c.id for c in assistants.CLIENTS))
     p.add_argument("--always", action="store_true",
                    help="answer even when the Tidywise app is closed or assistants are switched off (setups without the app)")
     p.add_argument("--as-json", action="store_true", help="print the result as JSON (for the app)")
