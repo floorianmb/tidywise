@@ -4,7 +4,7 @@ The assistant starts it itself as `tidywise mcp` and talks to it over stdin/stdo
 port and nothing to authenticate. It reads the database only – it never moves or changes anything – and it
 only answers while the Tidywise app is open and the user has allowed it in the app's settings.
 
-Built to cost little: three tools with short descriptions, answers as compact text lines with a cap,
+Built to cost little: two tools with short descriptions, answers as compact text lines with a cap,
 no third-party imports, one read-only SQLite query per call.
 """
 from __future__ import annotations
@@ -32,27 +32,15 @@ INSTRUCTIONS = (
 TOOLS = [
     {
         "name": "search",
-        "description": "Search the user's sorted files and saved links by words in name, summary, keywords or title.",
+        "description": "The user's sorted files, pages read and web searches, newest first – by words, recent days or both.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "Words that must all match"},
-                "kind": {"type": "string", "enum": ["all", "files", "links"], "default": "all"},
+                "query": {"type": "string", "description": "Words that must all match; omit to list everything"},
+                "days": {"type": "integer", "description": "Only the last N days"},
+                "kind": {"type": "string", "enum": ["all", "files", "links", "searches"], "default": "all"},
                 "topic": {"type": "string", "description": "Topic slug to restrict to (see `topics`)"},
                 "limit": {"type": "integer", "default": 10, "maximum": MAX_LIMIT},
-            },
-            "required": ["query"],
-        },
-    },
-    {
-        "name": "recent",
-        "description": "What the user filed, read or searched for in the last days.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "days": {"type": "integer", "default": 7},
-                "kind": {"type": "string", "enum": ["all", "files", "links", "searches"], "default": "all"},
-                "limit": {"type": "integer", "default": 20, "maximum": MAX_LIMIT},
             },
         },
     },
@@ -148,52 +136,59 @@ def _section(title: str, lines: list[str], limit: int) -> list[str]:
     return [f"{title}:"] + lines[:limit] + more
 
 
+def _days(args: dict) -> int | None:
+    try:
+        return max(1, min(3650, int(args["days"])))
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _where(text_columns: str, words: list[str], date_column: str, since: str | None) -> tuple[str, list[str]]:
+    """SQL condition for the query words and the time window – either may be missing."""
+    where, params = _like(text_columns, words) if words else ("1", [])
+    if since:
+        where, params = f"{where} AND {date_column} >= ?", params + [since]
+    return where, params
+
+
 def tool_search(cfg: config.Config, con: sqlite3.Connection, args: dict) -> str:
     words = str(args.get("query") or "").split()
-    if not words:
-        return "Give at least one word to search for."
-    kind, topic, limit = args.get("kind", "all"), args.get("topic"), _limit(args, 10)
+    kind, topic, limit, days = args.get("kind", "all"), args.get("topic"), _limit(args, 10), _days(args)
+    since = (datetime.now() - timedelta(days=days)).isoformat(timespec="seconds") if days else None
+    inbox = topic in ("_inbox", "inbox")
     out: list[str] = []
     if kind in ("all", "files"):
-        where, params = _like("name || ' ' || coalesce(summary,'') || ' ' || coalesce(keywords,'')", words)
-        if topic in ("_inbox", "inbox"):
+        where, params = _where("name || ' ' || coalesce(summary,'') || ' ' || coalesce(keywords,'')", words,
+                               "moved_at", since)
+        if inbox:
             where += " AND coalesce(cur_path,'') LIKE '%/_inbox/%'"
         elif topic:
             where, params = where + " AND topic = ? AND coalesce(cur_path,'') NOT LIKE '%/_inbox/%'", params + [topic]
         rows = con.execute(f"SELECT * FROM files WHERE status='moved' AND {where} ORDER BY moved_at DESC LIMIT ?",
                            (*params, limit + 1)).fetchall()
         out += _section("Files", [_file_line(r) for r in rows], limit)
-    if kind in ("all", "links") and topic not in ("_inbox", "inbox"):
-        where, params = _like("coalesce(title,'') || ' ' || coalesce(domain,'') || ' ' || url", words)
+    if kind in ("all", "links") and not inbox:
+        where, params = _where("coalesce(title,'') || ' ' || coalesce(domain,'') || ' ' || url", words,
+                               "last_visit", since)
         if topic:
             where, params = where + " AND topic = ?", params + [topic]
         rows = con.execute(f"SELECT * FROM links WHERE {where} ORDER BY last_visit DESC LIMIT ?",
                            (*params, limit + 1)).fetchall()
         out += _section("Links", [_link_line(r) for r in rows], limit)
-    return "\n".join(out) or f"No matches for “{' '.join(words)}”."
+    if kind in ("all", "searches") and not topic:  # web searches have no topic
+        where, params = _where("term", words, "at", since)
+        rows = con.execute(f"SELECT term, max(at) AS at FROM searches WHERE {where} GROUP BY term ORDER BY at DESC "
+                           "LIMIT ?", (*params, limit + 1)).fetchall()
+        out += _section("Searched for", [f"{r['at'][:10]} · {r['term']}" for r in rows], limit)
+    if out:
+        return "\n".join(out)
+    what = f" for “{' '.join(words)}”" if words else ""
+    return f"No matches{what}" + (f" in the last {days} days." if days else ".")
 
 
 def tool_recent(cfg: config.Config, con: sqlite3.Connection, args: dict) -> str:
-    try:
-        days = max(1, min(365, int(args.get("days", 7))))
-    except (TypeError, ValueError):
-        days = 7
-    kind, limit = args.get("kind", "all"), _limit(args, 20)
-    since = (datetime.now() - timedelta(days=days)).isoformat(timespec="seconds")
-    out: list[str] = []
-    if kind in ("all", "files"):
-        rows = con.execute("SELECT * FROM files WHERE status='moved' AND moved_at >= ? ORDER BY moved_at DESC LIMIT ?",
-                           (since, limit + 1)).fetchall()
-        out += _section("Files sorted", [_file_line(r) for r in rows], limit)
-    if kind in ("all", "links"):
-        rows = con.execute("SELECT * FROM links WHERE last_visit >= ? ORDER BY last_visit DESC LIMIT ?",
-                           (since, limit + 1)).fetchall()
-        out += _section("Pages read", [_link_line(r) for r in rows], limit)
-    if kind in ("all", "searches"):
-        rows = con.execute("SELECT term, max(at) AS at FROM searches WHERE at >= ? GROUP BY term ORDER BY at DESC LIMIT ?",
-                           (since, limit + 1)).fetchall()
-        out += _section("Searched for", [f"{r['at'][:10]} · {r['term']}" for r in rows], limit)
-    return "\n".join(out) or f"Nothing in the last {days} days."
+    """The former `recent` tool, for assistants that still have it from an older tool list."""
+    return tool_search(cfg, con, {"days": 7, "limit": 20, **args})
 
 
 def tool_topics(cfg: config.Config, con: sqlite3.Connection, args: dict) -> str:

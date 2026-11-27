@@ -1,4 +1,4 @@
-"""The MCP server for AI assistants: protocol, the three tools, and when it refuses to answer.
+"""The MCP server for AI assistants: protocol, the two tools, and when it refuses to answer.
 
     .venv/bin/python -m unittest discover tests
 """
@@ -9,6 +9,7 @@ import sqlite3
 import tempfile
 import unittest
 from contextlib import closing
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest import mock
 
@@ -63,7 +64,7 @@ class McpTest(unittest.TestCase):
         self.assertIn(unknown["result"]["protocolVersion"], mcp.PROTOCOL_VERSIONS)
         self.assertIsNone(mcp.handle({"jsonrpc": "2.0", "method": "notifications/initialized"}), "notifications get no answer")
         tools = mcp.handle({"jsonrpc": "2.0", "id": 3, "method": "tools/list"})["result"]["tools"]
-        self.assertEqual([t["name"] for t in tools], ["search", "recent", "topics"])
+        self.assertEqual([t["name"] for t in tools], ["search", "topics"])
         self.assertLess(len(json.dumps(tools)), 1500, "tool definitions cost tokens in every session – keep them short")
         self.assertEqual(mcp.handle({"jsonrpc": "2.0", "id": 4, "method": "nope"})["error"]["code"], -32601)
 
@@ -117,20 +118,40 @@ class McpTest(unittest.TestCase):
         self.assertIn("Invoice_hosting.pdf", self.call("search", query="web_hosting")[0])
         self.assertIn("No matches", self.call("search", query="web%hosting")[0])
 
-    def test_recent(self):
+    def test_search_without_query_lists_the_newest(self):
         self.open_app()
-        text, _ = self.call("recent", days=1)
-        for part in ("Files sorted:", "Invoice_hosting.pdf", "Pages read:", "Searched for:", "lisbon sights"):
-            self.assertIn(part, text)
-        self.assertNotIn("Pages read:", self.call("recent", kind="files")[0])
+        store = Store(self.cfg.db_path)
+        month_ago = (datetime.now() - timedelta(days=30)).isoformat(timespec="seconds")
+        store.upsert_link("https://example.com/porto", "Porto by tram", "example.com", "travel", month_ago, month_ago, 1)
+        store.add_search("porto trams", month_ago)
+        store.commit()
+        store.db.close()
 
-    def test_search_and_recent_flag_files_moved_or_deleted_outside_tidywise(self):
+        text, _ = self.call("search")
+        for part in ("Files:", "Invoice_hosting.pdf", "Links:", "Lisbon", "Porto", "Searched for:", "porto trams"):
+            self.assertIn(part, text)
+        week, _ = self.call("search", days=7)
+        for part in ("Invoice_hosting.pdf", "Lisbon", "lisbon sights"):
+            self.assertIn(part, week)
+        self.assertNotIn("orto", week, "older than the window")
+        self.assertNotIn("Links:", self.call("search", days=7, kind="files")[0])
+        self.assertEqual(self.call("search", query="porto", days=7)[0], "No matches for “porto” in the last 7 days.")
+        self.assertEqual(self.call("search", query="porto", kind="searches")[0], "Searched for:\n" + month_ago[:10] + " · porto trams")
+        self.assertNotIn("Searched for:", self.call("search", query="lisbon", topic="travel")[0], "searches have no topic")
+
+    def test_former_recent_tool_still_answers(self):
+        self.open_app()
+        text, is_error = self.call("recent", kind="links")
+        self.assertFalse(is_error)
+        self.assertIn("Lisbon in three days", text)
+
+    def test_search_flags_files_moved_or_deleted_outside_tidywise(self):
         self.invoice.rename(self.invoice.with_suffix(".moved"))
         with closing(sqlite3.connect(self.cfg.db_path.as_uri() + "?mode=ro", uri=True)) as con:
             con.row_factory = sqlite3.Row
-            for tool, args in ((mcp.tool_search, {"query": "invoice"}), (mcp.tool_recent, {"kind": "files"})):
-                with self.subTest(tool=tool.__name__):
-                    text = tool(self.cfg, con, args)
+            for args in ({"query": "invoice"}, {"days": 7, "kind": "files"}):
+                with self.subTest(args=args):
+                    text = mcp.tool_search(self.cfg, con, args)
                     self.assertIn("Invoice_hosting.pdf", text)
                     self.assertIn("file unavailable at its indexed location", text)
                     self.assertNotIn(" → ", text)
