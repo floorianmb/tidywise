@@ -39,7 +39,7 @@ struct SettingsView: View {
         case .rules: "How Tidywise sorts: when, how independently and how carefully."
         case .topics: "Which topics Tidywise sorts into. Every topic is a folder."
         case .model: "Which AI on your Mac reads the files."
-        case .assistants: "Let Claude Code, Codex, OpenCode and others search what Tidywise has sorted."
+        case .assistants: "Let Claude, Codex, Cursor, Zed and others search what Tidywise has sorted."
         case .general: "Startup, automation and browser history."
         }
     }

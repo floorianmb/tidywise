@@ -68,8 +68,9 @@ struct AssistantSettings: View {
 
     private func symbol(_ id: String) -> String {
         switch id {
-        case "claude": "sparkle"
+        case "claude", "claude-desktop": "sparkle"
         case "codex": "chevron.left.forwardslash.chevron.right"
+        case "cursor", "windsurf", "zed": "curlybraces"
         default: "terminal.fill"
         }
     }
@@ -110,8 +111,7 @@ struct AssistantSettings: View {
     private var abilities: some View {
         VStack(alignment: .leading, spacing: 10) {
             CardTitle(title: "What an assistant can do", systemImage: "list.bullet")
-            ability("magnifyingglass", "Search", "Find sorted files and saved links by words in the name, summary or keywords.")
-            ability("clock", "Recent", "See what you filed, read or searched for in the last days.")
+            ability("magnifyingglass", "Search", "Find sorted files, pages read and web searches by words, by the last days, or both.")
             ability("square.grid.2x2", "Topics", "Get your topics with counts, and where the archive lives.")
             Label("It cannot move, change or delete anything, and it never sees your private folder.", systemImage: "lock.fill")
                 .font(.callout)
