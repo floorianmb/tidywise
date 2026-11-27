@@ -190,13 +190,13 @@ tidywise mcp status          # who is connected
 
 What you should know:
 
-- **Three tools, read-only:** `search` (files and links by words), `recent` (what you filed, read or searched
-  for lately) and `topics`. An assistant cannot move, change or delete anything, and never sees `_private/`.
+- **Two tools, read-only:** `search` (files, pages read and web searches – by words, by the last days or
+  both) and `topics`. An assistant cannot move, change or delete anything, and never sees `_private/`.
 - **Only while the app is open,** and only if "Let assistants search your archive" is switched on. Otherwise
   the server answers with a sentence saying so. (Without the app: `tidywise mcp --always`.)
 - **No open port.** The assistant starts the server itself and talks to it directly; nothing listens on the
   network.
-- **Cheap to keep connected:** the tool definitions are about 250 tokens, answers are compact text lines with
+- **Cheap to keep connected:** the tool definitions are about 200 tokens, answers are compact text lines with
   a cap, and the server starts in well under a tenth of a second.
 
 There is also a Claude Code skill in `skill/` (linked to `~/.claude/skills/tidywise` by `install.sh`) that
