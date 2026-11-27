@@ -33,6 +33,9 @@ struct TidywiseConfig: Codable, Equatable {
     var subfolders = "none"
     var intervalMinutes = 15
     var linksEnabled = false
+    /// Browsers whose history is read (chrome, safari, firefox, arc, brave, vivaldi, edge). Optional so that
+    /// a CLI without this setting still decodes; nil is not sent, so the CLI keeps its value.
+    var browsers: [String]?
     var chromeProfile = "Default"
     var linksFirstDays = 14
     var linksIntervalMinutes = 60
@@ -58,12 +61,24 @@ struct TidywiseConfig: Codable, Equatable {
         case intervalMinutes = "interval_minutes"
         case linksEnabled = "links_enabled"
         case chromeProfile = "chrome_profile"
+        case browsers
         case linksFirstDays = "links_first_days"
         case linksIntervalMinutes = "links_interval_minutes"
         case skipExtensions = "skip_extensions"
     }
 
     var root: URL { URL(fileURLWithPath: rootPath) }
+
+    var chosenBrowsers: [String] { browsers ?? ["chrome"] }
+    /// “Chrome”, “Safari and Firefox” – for sentences in the interface.
+    var browserNames: String {
+        let names = Browser.all.filter { chosenBrowsers.contains($0.id) }.map(\.title)
+        switch names.count {
+        case 0: return "browser"
+        case 1: return names[0]
+        default: return names.dropLast().joined(separator: ", ") + " and " + names.last!
+        }
+    }
 
     static let defaultServerURL = "http://127.0.0.1:1234/v1"
     /// Does the model run through Ollama (the default) – or through another local server?
@@ -272,4 +287,26 @@ struct ServiceStatus: Equatable {
     var running = false
     var runs: Int?
     var lastExit: String?
+}
+
+/// A browser whose history Tidywise can read (the CLI knows where each keeps it: browsers.py).
+struct Browser: Identifiable {
+    let id: String
+    let title: String
+    let app: String
+
+    static let all = [
+        Browser(id: "chrome", title: "Chrome", app: "Google Chrome.app"),
+        Browser(id: "safari", title: "Safari", app: "Safari.app"),
+        Browser(id: "firefox", title: "Firefox", app: "Firefox.app"),
+        Browser(id: "arc", title: "Arc", app: "Arc.app"),
+        Browser(id: "brave", title: "Brave", app: "Brave Browser.app"),
+        Browser(id: "vivaldi", title: "Vivaldi", app: "Vivaldi.app"),
+        Browser(id: "edge", title: "Edge", app: "Microsoft Edge.app"),
+    ]
+
+    var isInstalled: Bool {
+        ["/Applications", Paths.home.appending(path: "Applications").path, "/System/Applications", "/System/Cryptexes/App/System/Applications"]
+            .contains { FileManager.default.fileExists(atPath: "\($0)/\(app)") }
+    }
 }

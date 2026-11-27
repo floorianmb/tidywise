@@ -24,7 +24,7 @@ struct LinksView: View {
         let counts = Dictionary(grouping: matching, by: { $0.topic ?? "" }).mapValues(\.count)
 
         VStack(alignment: .leading, spacing: 14) {
-            PageHeader("Links", subtitle: "Pages from your Chrome history, sorted by topic by Tidywise. Double-click to open a page.") {
+            PageHeader("Links", subtitle: "Pages from your \(state.config.browserNames) history, sorted by topic by Tidywise. Double-click to open a page.") {
                 Picker("View", selection: $mode) {
                     ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
                 }
@@ -32,7 +32,7 @@ struct LinksView: View {
                 .labelsHidden()
                 .fixedSize()
                 Button { state.syncLinks() } label: { Label("Read history", systemImage: "clock.arrow.circlepath") }
-                    .help(state.aiEnabled ? "Check your Chrome history for new pages now" : "AI is off")
+                    .help(state.aiEnabled ? "Check your browser history for new pages now" : "AI is off")
                     .disabled(!state.canScan || !state.config.linksEnabled)
             }
             .padding(.horizontal, DS.pagePadding)
@@ -65,14 +65,14 @@ struct LinksView: View {
     @ViewBuilder private func pages(_ links: [LinkItem]) -> some View {
         if state.links.isEmpty, !state.config.linksEnabled {
             EmptyState(symbol: "link", color: .gray, title: "The link collection is off",
-                       text: "If you like, Tidywise collects the pages from your Chrome history by topic. Everything stays on your Mac.",
+                       text: "If you like, Tidywise collects the pages from your browser history by topic – Chrome, Safari, Firefox, Arc, Brave, Vivaldi or Edge. Everything stays on your Mac.",
                        actionTitle: "Turn on in Settings") { state.openSettings(.general) }
         } else if state.links.isEmpty {
             EmptyState(symbol: state.chromeBlocked ? "lock.fill" : "link", color: state.chromeBlocked ? DS.attention : .gray,
                        title: "No links yet",
                        text: state.chromeBlocked
-                           ? "Tidywise isn't allowed to read your Chrome history. Settings shows you how to allow access."
-                           : "Your Chrome history is read regularly as soon as the AI is ready.",
+                           ? "Tidywise isn't allowed to read your \(state.blockedBrowsers) history. Settings shows you how to allow access."
+                           : "Your \(state.config.browserNames) history is read regularly as soon as the AI is ready.",
                        actionTitle: state.chromeBlocked ? "Allow access" : (state.canScan ? "Read now" : nil)) {
                 if state.chromeBlocked { state.openSettings(.general) } else { state.syncLinks() }
             }

@@ -1,15 +1,14 @@
-"""Read the Chrome history and store it as a classified link collection."""
+"""Read the browser history (Chrome, Safari, Firefox, Arc, Brave, Vivaldi, Edge) and store it as a classified
+link collection. Where each browser keeps its history and how to read it: browsers.py."""
 from __future__ import annotations
 
 import re
-import shutil
 import sqlite3
-import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import parse_qs, urlsplit, urlunsplit
 
-from . import llm, telemetry
+from . import browsers, llm, telemetry
 from .config import Config
 from .store import Store, now_iso
 
@@ -59,6 +58,23 @@ def _is_search_host(host: str) -> bool:
     return bool(GOOGLE_SEARCH_HOST.match(host)) or any(host == d or host.endswith("." + d) for d in SEARCH_DOMAINS)
 
 
+def search_term(url: str) -> str | None:
+    """The words of a web search, from its URL – for browsers that don't record searches separately."""
+    try:
+        s = urlsplit(url)
+    except ValueError:
+        return None
+    host = (s.hostname or "").lower()
+    if not _is_search_host(host):
+        return None
+    path = s.path.rstrip("/")
+    duck = host == "duckduckgo.com" or host.endswith(".duckduckgo.com")
+    if not (path == "/search" or (duck and path in ("", "/html", "/lite"))):
+        return None
+    term = " ".join((parse_qs(s.query).get("q") or [""])[0].split())
+    return term[:200] or None
+
+
 def _normalize(url: str) -> str | None:
     try:
         s = urlsplit(url)
@@ -73,7 +89,7 @@ def _normalize(url: str) -> str | None:
     if any(part in path for part in NOISE_PATH_PARTS):
         return None
     if _is_search_host(host):
-        if path.startswith(("/search", "/url", "/aclk", "/maps/dir", "/sorry")):
+        if path.startswith(("/search", "/url", "/aclk", "/maps/dir", "/sorry")) or search_term(url):
             return None  # searches are stored separately in 'searches'; redirects, bot checks and routes are noise
         if path.startswith("/maps/place/"):  # one entry per place instead of per map view
             place = s.path.split("/")[3] if len(s.path.split("/")) > 3 else ""
@@ -181,49 +197,66 @@ def classify_pairs(cfg: Config, pairs: list[tuple[str, str]], task: str, verbose
     return result
 
 
-def sync(cfg: Config, store: Store, verbose: bool = True, force: bool = False) -> tuple[int, int]:
-    """Read new visits since the last run. Returns (new links, searches)."""
+def sync(cfg: Config, store: Store, verbose: bool = True, force: bool = False,
+         errors: list[str] | None = None) -> tuple[int, int]:
+    """Read new visits from the chosen browsers since the last run. Returns (new links, searches).
+
+    A browser that can't be read (not installed, no Full Disk Access) doesn't stop the others. With `errors`
+    its problem is added there as a sentence (“Safari history: …”); without, the first problem is raised
+    if no browser could be read at all."""
     last_run = store.get_meta("chrome_last_run")
     if not force and last_run:
         if datetime.fromisoformat(last_run) > datetime.now() - timedelta(minutes=cfg.links_interval_minutes):
             return 0, 0
-    src = history_path(cfg)
-    if not src.exists():
-        raise FileNotFoundError(f"Chrome history not found: {src}")
-    since = int(store.get_meta("chrome_last_visit") or dt_to_chrome(datetime.now() - timedelta(days=cfg.links_first_days)))
 
-    with tempfile.TemporaryDirectory() as td:
-        copy = Path(td) / "History"
-        shutil.copy2(src, copy)  # Chrome keeps the file locked → read a copy
-        con = sqlite3.connect(f"file:{copy}?mode=ro", uri=True)
-        visits = con.execute(
-            """SELECT u.url, u.title, MIN(v.visit_time), MAX(v.visit_time), COUNT(*)
-               FROM visits v JOIN urls u ON u.id = v.url
-               WHERE v.visit_time > ? GROUP BY u.id ORDER BY MAX(v.visit_time)""",
-            (since,),
-        ).fetchall()
-        searches = con.execute(
-            """SELECT k.term, u.last_visit_time FROM keyword_search_terms k JOIN urls u ON u.id = k.url_id
-               WHERE u.last_visit_time > ?""",
-            (since,),
-        ).fetchall()
-        con.close()
-
-    max_visit = since
     fresh: dict[str, tuple[str, str, str, str, int]] = {}
-    for url, title, first, last, count in visits:
-        max_visit = max(max_visit, last)
-        norm = _normalize(url)
-        title = (title or "").strip()
-        if not norm or not title or is_noise_title(title):
+    searches: list[tuple[str, str]] = []
+    positions: dict[str, str] = {}
+    problems: list[tuple[browsers.Browser, OSError | sqlite3.Error]] = []
+    start = datetime.now() - timedelta(days=cfg.links_first_days)
+    for b in browsers.selected(cfg):
+        src = history_path(cfg) if b.id == "chrome" else b.history_file(cfg)
+        if src is None or not src.exists():
+            problems.append((b, FileNotFoundError(f"{b.title} history not found: {src}")))
             continue
-        domain = (urlsplit(norm).hostname or "").removeprefix("www.")
-        f_iso, l_iso = chrome_to_dt(first).isoformat(timespec="seconds"), chrome_to_dt(last).isoformat(timespec="seconds")
-        if norm in fresh:  # same URL without fragment several times
-            t, d, f0, l0, c0 = fresh[norm]
-            fresh[norm] = (t, d, min(f0, f_iso), max(l0, l_iso), c0 + count)
-        else:
-            fresh[norm] = (title, domain, f_iso, l_iso, count)
+        key = f"{b.id}_last_visit"
+        since = b.position(store.get_meta(key), start)
+        try:
+            visits, terms = b.read(src, since)
+        except (OSError, sqlite3.Error) as e:  # PermissionError without Full Disk Access, a locked or odd file …
+            problems.append((b, e))
+            continue
+        max_visit = since
+        for url, title, first, last, count in visits:
+            max_visit = max(max_visit, last)
+            f_iso = b.to_dt(first).isoformat(timespec="seconds")
+            l_iso = b.to_dt(last).isoformat(timespec="seconds")
+            if terms is None and (term := search_term(url)):
+                searches.append((term, l_iso))
+            norm = _normalize(url)
+            title = (title or "").strip()
+            if not norm or not title or is_noise_title(title):
+                continue
+            domain = (urlsplit(norm).hostname or "").removeprefix("www.")
+            if norm in fresh:  # same URL without fragment several times, or in several browsers
+                t, d, f0, l0, c0 = fresh[norm]
+                fresh[norm] = (t, d, min(f0, f_iso), max(l0, l_iso), c0 + count)
+            else:
+                fresh[norm] = (title, domain, f_iso, l_iso, count)
+        for term, at in terms or []:
+            searches.append((term, b.to_dt(at).isoformat(timespec="seconds")))
+        positions[key] = str(max_visit)  # exactly as read: Chrome's 17-digit microseconds don't fit a float
+
+    messages = [f"{b.title} history: {e}" for b, e in problems]
+    if errors is not None:
+        errors.extend(messages)
+    blocked = [b.title for b, e in problems if isinstance(e, PermissionError)]
+    store.set_meta("links_blocked", ", ".join(blocked))
+    store.commit()
+    if not positions:
+        if errors is None and problems:
+            raise problems[0][1]
+        return 0, 0
 
     known = {u for u in fresh if store.link(u)}
     new = [u for u in fresh if u not in known]
@@ -234,8 +267,9 @@ def sync(cfg: Config, store: Store, verbose: bool = True, force: bool = False) -
     for term, at in searches:
         term = (term or "").strip()
         if term:
-            store.add_search(term, chrome_to_dt(at).isoformat(timespec="seconds"))
-    store.set_meta("chrome_last_visit", str(max_visit))
+            store.add_search(term, at)
+    for key, value in positions.items():
+        store.set_meta(key, value)
     store.commit()  # don't hold a write lock while the model is working
 
     by_pair: dict[tuple[str, str], list[str]] = {}

@@ -108,7 +108,7 @@ Everything can be changed later under **Settings** (⌘,). Every change applies 
 | **Topics** | Name, description, icon and color of each topic. The AI reads the description – the more specific, the better |
 | **AI model** | Choose and download a model · the language of summaries · a sentence about you that helps with sorting |
 | **Assistants** | Let AI assistants search the archive · connect Claude Code, Codex, OpenCode, Cursor, Windsurf, Zed or Claude Desktop |
-| **General** | Start at login · automation · Chrome history as a link collection |
+| **General** | Start at login · automation · browser history (Chrome, Safari, Firefox, Arc, Brave, Vivaldi, Edge) as a link collection |
 
 | | |
 |---|---|
@@ -126,7 +126,7 @@ Tidywise/                    (default: ~/Downloads/Tidywise – you choose)
 │   └── travel/ …
 ├── _inbox/                unsure cases – you pick the topic under "Review"
 ├── _private/              never read, neither by Tidywise nor by an AI assistant
-├── Links/<topic>.md       link collection from your Chrome history (only if turned on)
+├── Links/<topic>.md       link collection from your browser history (only if turned on)
 ├── Days/YYYY-MM-DD.md     what arrived on that day
 └── AGENTS.md              guide for AI assistants
 ```
@@ -143,7 +143,9 @@ Tidywise/                    (default: ~/Downloads/Tidywise – you choose)
 - **Nothing leaves your Mac.** Tidywise only talks to a model server on this Mac (Ollama, or the server you
   chose) – an address on another computer is refused unless you set `allow_remote_llm = true`. It needs the
   internet once: to download the model from ollama.com.
-- The Chrome history is only read if you turn it on.
+- The browser history is only read if you turn it on, and only from the browsers you pick (Chrome, Safari,
+  Firefox, Arc, Brave, Vivaldi, Edge) – from a copy, locally. Safari's history needs Full Disk Access; if
+  macOS blocks a browser, Tidywise says so and keeps reading the others.
 - The background service only runs while the app is open. The **AI** switch stops running work and frees
   the memory immediately.
 
@@ -181,6 +183,8 @@ tidywise undo --last 5           # put back the last 5 moves (or --all, or numbe
 tidywise config                  # show the settings
 tidywise config set auto_apply true
 tidywise config set watch "~/Downloads, ~/Desktop"
+tidywise config set browsers "safari, firefox"   # whose history becomes the link collection
+tidywise links                   # read the browser history now
 tidywise service install         # set up the background service (uninstall removes it)
 tidywise mcp add claude          # let an AI assistant search the archive
 ```
@@ -239,7 +243,8 @@ tidywise/                 Python: the actual work
   organize.py           find loose files, classify, move, put back
   extract.py            text excerpt, image and download source of a file
   llm.py                talking to the model (Ollama or an OpenAI-style local server)
-  chrome.py             Chrome history as a link collection
+  chrome.py             browser history as a link collection (filtering, sorting)
+  browsers.py           where Chrome, Safari, Firefox, Arc, Brave, Vivaldi, Edge keep their history
   render.py             AGENTS.md and the index files
   service.py            background service (launchd)
   mcp.py                MCP server for AI assistants (read-only search)

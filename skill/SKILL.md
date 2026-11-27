@@ -1,6 +1,6 @@
 ---
 name: tidywise
-description: The user's local knowledge archive (default ~/Downloads/Tidywise) – sorted downloads/documents, link collection and searches from the Chrome history, daily logs. Use ONLY when the user explicitly asks you to look on their computer, in their files, downloads or browser history (e.g. "look on my Mac", "get context from my computer", "what did I save/read about X", "/tidywise" – in any language, e.g. German "guck mal auf meinem Rechner"). Never load it on your own initiative or as a precaution.
+description: The user's local knowledge archive (default ~/Downloads/Tidywise) – sorted downloads/documents, link collection and searches from the browser history, daily logs. Use ONLY when the user explicitly asks you to look on their computer, in their files, downloads or browser history (e.g. "look on my Mac", "get context from my computer", "what did I save/read about X", "/tidywise" – in any language, e.g. German "guck mal auf meinem Rechner"). Never load it on your own initiative or as a precaution.
 ---
 
 # Tidywise – getting context from the user's Mac
@@ -30,5 +30,5 @@ The archive is maintained by a local background service (`tidywise`, a local mod
 ## Useful commands
 - `tidywise status` – state, open suggestions
 - `tidywise scan` – classify new loose files (suggestions only)
-- `tidywise links` – read the Chrome history now (only if the user has turned the link collection on)
+- `tidywise links` – read the browser history now (only if the user has turned the link collection on)
 - `tidywise config` – settings: destination folder, watched folders, topics

@@ -256,10 +256,14 @@ final class AppState {
         return logTail
     }
 
-    /// Blocked if the last run hit a Chrome permission error and no successful Chrome sync happened since.
+    /// Browsers macOS didn't let Tidywise read at the last sync (“Safari, Brave”), empty if none.
+    var blockedBrowsers: String { meta["links_blocked"] ?? (chromeBlocked ? "Chrome" : "") }
+
+    /// Blocked if the last history sync hit a permission error (older CLIs: found in the log, Chrome only).
     var chromeBlocked: Bool {
         if activity?.isAlive == true && activity?.task == "Sorting history" { return false }
         guard config.linksEnabled else { return false }
+        if let blocked = meta["links_blocked"] { return !blocked.isEmpty }
         if let lastSync = Format.date(meta["chrome_last_run"]), let lastRun = lastRun, lastSync >= lastRun.addingTimeInterval(-60) {
             return false
         }
@@ -400,7 +404,7 @@ final class AppState {
             }
         }
     }
-    func syncLinks() { runCLI("Read Chrome history", ["links", "-q"], needsAI: true) }
+    func syncLinks() { runCLI("Read browser history", ["links", "-q"], needsAI: true) }
     func openSettings(_ tab: SettingsTab) {
         settingsTab = tab
         page = .settings

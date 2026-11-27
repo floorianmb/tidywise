@@ -84,11 +84,15 @@ struct GeneralSettings: View {
         }
 
         SettingsCard {
-            SettingToggle(symbol: "link", title: "Chrome history as a link collection",
+            SettingToggle(symbol: "link", title: "Browser history as a link collection",
                           on: "On: Pages you visit are collected by topic and can be found under “Links”. Everything stays on your Mac.",
                           off: "Off: Tidywise doesn't read your browser history.",
                           isOn: $config.linksEnabled)
             if config.linksEnabled {
+                Divider()
+                browserChoice
+            }
+            if config.linksEnabled, config.chosenBrowsers.contains("chrome") {
                 Divider()
                 SettingRow("person.crop.circle", "Chrome profile",
                            "Only matters if you use several profiles in Chrome. The first is called “Default”, the others “Profile 1”, “Profile 2” …") {
@@ -113,6 +117,37 @@ struct GeneralSettings: View {
                 Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([Paths.config]) }
             }
         }
+    }
+
+    /// One switch per browser; at least one stays on while the link collection is on.
+    private var browserChoice: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SettingLabel(symbol: "safari", title: "Browsers",
+                         text: "Whose history Tidywise reads. Safari needs Full Disk Access – Tidywise tells you if it's missing.")
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 8)], alignment: .leading, spacing: 8) {
+                ForEach(Browser.all) { browser in
+                    Toggle(isOn: binding(for: browser.id)) {
+                        HStack(spacing: 4) {
+                            Text(browser.title)
+                            if !browser.isInstalled { Text("not found").font(.caption).foregroundStyle(.tertiary) }
+                        }
+                    }
+                    .toggleStyle(.checkbox)
+                    .disabled(config.chosenBrowsers == [browser.id])
+                }
+            }
+            .padding(.leading, 36)
+        }
+        .padding(.vertical, 12)
+    }
+
+    private func binding(for id: String) -> Binding<Bool> {
+        Binding(get: { config.chosenBrowsers.contains(id) }, set: { on in
+            var chosen = config.chosenBrowsers.filter { $0 != id }
+            if on { chosen.append(id) }
+            guard !chosen.isEmpty else { return }
+            config.browsers = Browser.all.map(\.id).filter(chosen.contains)
+        })
     }
 
     private func commitProfile() {

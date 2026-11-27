@@ -41,7 +41,7 @@ struct HomeView: View {
             Notice(text: "macOS doesn't let Tidywise reach your folders in the background. That's why automation finds no files.",
                    systemImage: "lock.fill", actionTitle: "Allow access") { state.openSettings(.general) }
         } else if state.chromeBlocked {
-            Notice(text: "Tidywise isn't allowed to read your Chrome history. That's why no new links are added.",
+            Notice(text: "Tidywise isn't allowed to read your \(state.blockedBrowsers) history. That's why no new links come from there.",
                    systemImage: "lock.fill", actionTitle: "Allow access") { state.openSettings(.general) }
         }
     }

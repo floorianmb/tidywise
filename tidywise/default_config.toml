@@ -34,8 +34,10 @@ profile = ""
 # The language summaries and keywords are written in – best the one you search in.
 summary_language = "English"
 
-# Read the Chrome history as a link collection. Off by default – you turn it on deliberately during setup.
+# Read the browser history as a link collection. Off by default – you turn it on deliberately during setup.
 links_enabled = false
+# Which browsers: chrome, safari, firefox, arc, brave, vivaldi, edge. Safari needs Full Disk Access.
+browsers = ["chrome"]
 chrome_profile = "Default"
 links_first_days = 14
 links_interval_minutes = 60

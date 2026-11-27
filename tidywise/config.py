@@ -28,6 +28,8 @@ SUBFOLDERS = ("none", "year", "month")
 # How Tidywise talks to the local model: Ollama's own API, or the OpenAI-style API that LM Studio,
 # mlx-lm (`mlx_lm.server`) and llama.cpp (`llama-server`) offer.
 LLM_BACKENDS = ("ollama", "openai")
+# Browsers whose history can be read as a link collection (details in browsers.py).
+BROWSER_IDS = ("chrome", "safari", "firefox", "arc", "brave", "vivaldi", "edge")
 # Icons and colours for the topic slugs older (German) configurations use, so they keep their look.
 LEGACY_STYLES = {
     "persoenliche-dokumente": ("person.text.rectangle.fill", "orange"), "finanzen": ("eurosign.circle.fill", "green"),
@@ -73,6 +75,7 @@ class Config:
     subfolders: str
     interval_minutes: int
     links_enabled: bool
+    browsers: list[str]
     chrome_profile: str
     links_first_days: int
     links_interval_minutes: int
@@ -238,6 +241,11 @@ def _from_raw(raw: dict, *, strict: bool = False) -> Config:
             raise ConfigError("Every folder Tidywise looks in needs a full path.")
         if not str(raw.get("model") or "").strip():
             raise ConfigError("No AI model is selected.")
+        unknown = [b for b in raw.get("browsers") or [] if str(b).strip().lower() not in BROWSER_IDS]
+        if unknown:
+            raise ConfigError(f"Unknown browser “{unknown[0]}”. Tidywise can read: {', '.join(BROWSER_IDS)}.")
+        if raw.get("links_enabled") and "browsers" in raw and not raw.get("browsers"):
+            raise ConfigError("Pick at least one browser whose history Tidywise reads – or switch the link collection off.")
         if str(raw.get("llm_backend") or "ollama").strip() not in LLM_BACKENDS:
             raise ConfigError(f"“llm_backend” is one of: {', '.join(LLM_BACKENDS)}.")
         for key in ("ollama_url", "llm_url"):
@@ -264,6 +272,7 @@ def _from_raw(raw: dict, *, strict: bool = False) -> Config:
         interval_minutes=int(number("interval_minutes", 15, 1, 24 * 60)),
         # If the entry is missing (older configuration) the history stays on – as it was before.
         links_enabled=bool(raw.get("links_enabled", True)),
+        browsers=_browsers(raw.get("browsers")),
         chrome_profile=str(raw.get("chrome_profile") or "Default").strip(),
         links_first_days=int(number("links_first_days", 14, 1, 3650)),
         links_interval_minutes=int(number("links_interval_minutes", 60, 1, 24 * 60)),
@@ -287,6 +296,12 @@ def is_local_url(url: str) -> bool:
         return ipaddress.ip_address(host).is_loopback
     except ValueError:
         return False
+
+
+def _browsers(values) -> list[str]:
+    """Known browsers in a fixed order; Chrome if nothing (valid) is set – that was the only one before."""
+    chosen = {str(v).strip().lower() for v in values or []}
+    return [b for b in BROWSER_IDS if b in chosen] or ["chrome"]
 
 
 def _extensions(values) -> list[str]:
@@ -353,6 +368,7 @@ def to_dict(cfg: Config, path: Path | None = None) -> dict:
         "subfolders": cfg.subfolders,
         "interval_minutes": cfg.interval_minutes,
         "links_enabled": cfg.links_enabled,
+        "browsers": cfg.browsers,
         "chrome_profile": cfg.chrome_profile,
         "links_first_days": cfg.links_first_days,
         "links_interval_minutes": cfg.links_interval_minutes,
@@ -404,9 +420,11 @@ def to_toml(cfg: Config) -> str:
         "# The language summaries and keywords are written in – best the one you search in.",
         f"summary_language = {_q(cfg.summary_language)}",
         "",
-        "# Read the Chrome history as a link collection (stays local). Profile folder under",
-        "# ~/Library/Application Support/Google/Chrome/, days to go back the first time, read at most this often (minutes).",
+        "# Read the browser history as a link collection (stays local). Browsers: " + ", ".join(BROWSER_IDS) + ".",
+        "# Safari needs Full Disk Access. chrome_profile = folder under ~/Library/Application Support/Google/Chrome/,",
+        "# then: days to go back the first time, read at most this often (minutes).",
         f"links_enabled = {str(cfg.links_enabled).lower()}",
+        f"browsers = {_list(cfg.browsers)}",
         f"chrome_profile = {_q(cfg.chrome_profile)}",
         f"links_first_days = {cfg.links_first_days}",
         f"links_interval_minutes = {cfg.links_interval_minutes}",
