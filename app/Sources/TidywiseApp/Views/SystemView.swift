@@ -78,7 +78,7 @@ struct SystemView: View {
         return VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top) {
                 statusHeader(symbol: "cpu.fill", color: color, kicker: "AI model · \(state.config.model)",
-                             title: state.stopping ? "Turning off …" : (!on ? "Turned off" : (!state.ollamaUp ? "Ollama isn't running" : (missing ? "Not downloaded yet" : loaded == nil ? "Asleep" : (busy ? "Computing right now" : "Loaded and ready")))),
+                             title: state.stopping ? "Turning off …" : (!on ? "Turned off" : (!state.ollamaUp ? "\(state.serverName) isn't running" : (missing ? (state.config.usesOllama ? "Not downloaded yet" : "Not offered by the server") : !state.config.usesOllama ? (busy ? "Computing right now" : "Ready") : loaded == nil ? "Asleep" : (busy ? "Computing right now" : "Loaded and ready")))),
                              pulsing: busy)
                 Spacer(minLength: 8)
                 AIToggle().controlSize(.regular)
@@ -86,6 +86,10 @@ struct SystemView: View {
             Group {
                 if !on {
                     Text("Uses no memory and doesn't start on its own. Reviewing, moving and searching still work.")
+                } else if !state.ollamaUp, !state.config.usesOllama {
+                    Text("Tidywise uses the local server at \(state.config.serverURL). Start it in LM Studio, or run mlx_lm.server or llama-server.")
+                } else if !state.config.usesOllama {
+                    Text(missing ? "Pick one of the server's models in Settings." : "Runs on your own server at \(state.config.serverURL), which manages its memory itself.")
                 } else if !state.ollamaUp {
                     Text(OllamaSetup.isInstalled ? "Without Ollama, Tidywise can't sort anything. One click starts it."
                                                  : "Ollama runs the AI on your Mac and isn't installed yet.")
@@ -109,6 +113,8 @@ struct SystemView: View {
             Spacer(minLength: 0)
             if !on {
                 EmptyView()
+            } else if !state.config.usesOllama {
+                if !state.ollamaUp || missing { Button("Model settings") { state.openSettings(.model) } }
             } else if !state.ollamaUp {
                 if OllamaSetup.isInstalled {
                     Button { state.startOllama() } label: { Label("Start Ollama", systemImage: "play.fill") }
@@ -204,7 +210,11 @@ struct SystemView: View {
                 fact("Reading input", promptTPS.isEmpty ? "–" : "\(Format.number(promptTPS.reduce(0, +) / Double(promptTPS.count), digits: 0)) tokens/s")
                 fact("Today", "\(today.count) calls")
                 fact("Errors", errors == 0 ? "none" : "\(errors) of \(state.calls.count)")
-                fact("Ollama", state.ollamaUp ? (state.ollamaVersion.map { "Version \($0)" } ?? "running") : "off")
+                if state.config.usesOllama {
+                    fact("Ollama", state.ollamaUp ? (state.ollamaVersion.map { "Version \($0)" } ?? "running") : "off")
+                } else {
+                    fact("Model server", state.ollamaUp ? "running" : "off")
+                }
                 if let m = state.modelLoaded {
                     if let vram = m.size_vram, m.size > 0 { fact("On the GPU", "\(Int(Double(vram) / Double(m.size) * 100))%") }
                     if let ctx = m.context_length { fact("Context window", "\(ctx.formatted(Format.integer)) tokens") }

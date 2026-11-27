@@ -61,19 +61,28 @@ struct ModelPicker: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.gap) {
-            OllamaStatusRow()
+            // Setup keeps it simple; another server can be chosen in Settings afterwards.
+            if !selectsImmediately { BackendChoice(config: $config) }
 
-            HStack(alignment: .top, spacing: 12) {
-                ForEach(ModelCatalog.all) { card($0) }
+            if config.usesOllama {
+                OllamaStatusRow()
+
+                HStack(alignment: .top, spacing: 12) {
+                    ForEach(ModelCatalog.all) { card($0) }
+                }
+                .fixedSize(horizontal: false, vertical: true)
+
+                if let d = state.download, d.failed {
+                    Notice(text: "Downloading \(d.model) didn't work: \(d.detail)", actionTitle: "Close") { state.download = nil }
+                }
+
+                others
+            } else {
+                LocalServerSettings(config: $config)
             }
-            .fixedSize(horizontal: false, vertical: true)
-
-            if let d = state.download, d.failed {
-                Notice(text: "Downloading \(d.model) didn't work: \(d.detail)", actionTitle: "Close") { state.download = nil }
-            }
-
-            others
         }
+        // Switching the server or its address: look right away what is there now.
+        .task(id: "\(state.config.usesOllama) \(state.config.serverURL)") { await state.refreshLive() }
     }
 
     // MARK: Cards
@@ -209,6 +218,126 @@ struct ModelPicker: View {
             state.downloadModel(tag, select: !selectsImmediately)
         }
         custom = ""
+    }
+}
+
+/// Ollama (the default, with one-click downloads) or another local server the user already runs.
+struct BackendChoice: View {
+    @Binding var config: TidywiseConfig
+
+    private var backend: Binding<String> {
+        Binding(get: { config.usesOllama ? "ollama" : "openai" }, set: { value in
+            var next = config
+            next.llmBackend = value
+            if value == "openai", next.llmURL == nil { next.llmURL = TidywiseConfig.defaultServerURL }
+            config = next
+        })
+    }
+
+    var body: some View {
+        SettingsCard {
+            SettingRow("server.rack", "Runs on",
+                       "Ollama is the easiest: models download here with one click. Already using LM Studio, MLX or llama.cpp? Tidywise can use that instead.") {
+                Picker("Runs on", selection: backend) {
+                    Text("Ollama").tag("ollama")
+                    Text("Another local server").tag("openai")
+                }
+                .labelsHidden()
+                .fixedSize()
+            }
+        }
+    }
+}
+
+/// A local server with an OpenAI-style API (LM Studio, mlx-lm, llama.cpp): its address and which of its models to use.
+struct LocalServerSettings: View {
+    @Environment(AppState.self) private var state
+    @Binding var config: TidywiseConfig
+    @ViewState private var url = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DS.gap) {
+            status
+            address
+            models
+        }
+        .onAppear { url = config.serverURL }
+        .onChange(of: config.serverURL) { url = config.serverURL }
+    }
+
+    private var status: some View {
+        HStack(spacing: 12) {
+            IconBadge(symbol: state.ollamaUp ? "checkmark" : "bolt.slash.fill",
+                      color: state.ollamaUp ? DS.ok : DS.attention, size: 30, round: true)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(state.ollamaUp ? "The model server is running" : "No model server answers").font(.body.weight(.medium))
+                Text(state.ollamaUp
+                     ? "\(config.serverURL) · \(state.installedModels.count == 1 ? "1 model" : "\(state.installedModels.count) models")"
+                     : "Start the local server in LM Studio (Developer → Start Server), or run mlx_lm.server or llama-server.")
+                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 12)
+            Button("Check again") { Task { await state.refreshLive() } }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .card(padding: 14, tint: state.ollamaUp ? nil : DS.attention)
+    }
+
+    private var address: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SettingLabel(symbol: "network", title: "Address",
+                         text: "Including /v1. LM Studio: http://127.0.0.1:1234/v1 · mlx-lm and llama.cpp: http://127.0.0.1:8080/v1. Only servers on this Mac – your files don't leave it.")
+            HStack(spacing: 8) {
+                TextField(TidywiseConfig.defaultServerURL, text: $url)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.callout, design: .monospaced))
+                    .onSubmit(commit)
+                if trimmed != config.serverURL {
+                    Button("Save", action: commit).buttonStyle(.borderedProminent)
+                }
+            }
+            .padding(.leading, 36)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .card()
+    }
+
+    private var models: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            CardTitle(title: "Model", systemImage: "cpu")
+            ForEach(state.installedModels) { m in
+                HStack(spacing: 10) {
+                    Image(systemName: "cpu").foregroundStyle(.secondary).frame(width: 20)
+                    Text(m.name).font(.system(.callout, design: .monospaced)).lineLimit(1).truncationMode(.middle)
+                    Spacer()
+                    if AppState.modelMatches(config.model, m.name) {
+                        Label("In use", systemImage: "checkmark").font(.callout.weight(.medium)).foregroundStyle(DS.ok)
+                    } else {
+                        Button("Use") { config.model = m.name }
+                    }
+                }
+            }
+            if state.ollamaUp, !state.modelInstalled {
+                Text("“\(config.model)” isn't offered by this server. Pick one of its models\(state.installedModels.isEmpty ? " once it has loaded some" : " above").")
+                    .font(.callout).foregroundStyle(DS.attention).fixedSize(horizontal: false, vertical: true)
+            } else if !state.ollamaUp {
+                Text("The models show up here as soon as the server answers.").font(.callout).foregroundStyle(.secondary)
+            }
+            Text("Ideally a model that understands images – then Tidywise also recognizes photos and scanned PDFs.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .card()
+    }
+
+    private var trimmed: String {
+        url.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    }
+
+    private func commit() {
+        let value = trimmed
+        guard !value.isEmpty, value != config.serverURL else { return }
+        config.llmURL = value
     }
 }
 

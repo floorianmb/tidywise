@@ -162,6 +162,8 @@ final class AppState {
     }
 
     var modelInstalled: Bool { isInstalled(config.model) }
+    /// What runs the model, for sentences like “Ollama isn't running”.
+    var serverName: String { config.usesOllama ? "Ollama" : "The model server" }
     func isInstalled(_ tag: String) -> Bool {
         installedModels.contains { Self.modelMatches($0.name, tag) }
     }
@@ -313,13 +315,18 @@ final class AppState {
 
     func refreshLive() async {
         let ollama = Ollama(baseURL: config.ollamaURL)
-        async let models = ollama.loadedModels()
-        async let onDisk = ollama.installedModels()
+        let usesOllama = config.usesOllama
+        let server = LocalServer(baseURL: config.serverURL)
+        async let models = usesOllama ? ollama.loadedModels() : nil
+        async let onDisk = usesOllama ? ollama.installedModels()
+                                      : await server.modelIDs()?.map { InstalledModel(name: $0, size: 0) }
         let (act, procs, mem) = await Task.detached {
             (Sources.readActivity(), Sources.ollamaProcesses(), Sources.systemMemory())
         }.value
-        let loaded = await models
-        if let installed = await onDisk { installedModels = installed }
+        let installed = await onDisk
+        // Another server: reachable = it lists its models; which one is loaded is its business.
+        let loaded = usesOllama ? await models : (installed == nil ? nil : [])
+        if let installed { installedModels = installed } else if !usesOllama { installedModels = [] }
         let wasBusy = activity?.isAlive == true
         activity = act
         processes = procs
@@ -328,7 +335,7 @@ final class AppState {
         ollamaUp = loaded != nil
         loadedModels = loaded ?? []
         ready = true
-        if ollamaVersion == nil, ollamaUp { ollamaVersion = await ollama.version() }
+        if usesOllama, ollamaVersion == nil, ollamaUp { ollamaVersion = await ollama.version() }
         // As soon as a run ends, fetch fresh data right away
         if wasBusy && act?.isAlive != true { await refreshData() }
     }
@@ -436,6 +443,7 @@ final class AppState {
     func setAutoApply(_ on: Bool) { updateConfig { $0.autoApply = on } }
 
     func loadModel() {
+        guard config.usesOllama else { return }
         let ollama = Ollama(baseURL: config.ollamaURL)
         let model = config.model
         runningCommand = "Load model"
@@ -447,6 +455,7 @@ final class AppState {
     }
 
     func unloadModel() {
+        guard config.usesOllama else { return }
         let ollama = Ollama(baseURL: config.ollamaURL)
         let model = modelLoaded?.name ?? config.model
         Task {
@@ -484,6 +493,7 @@ final class AppState {
         while Sources.readActivity()?.isAlive == true, Date.now < deadline { usleep(100_000) }
 
         let config = ConfigStore.last
+        guard config.usesOllama else { return }  // another server manages its memory itself
         let names = Ollama.loadedModelNamesSync(baseURL: config.ollamaURL, timeout: 2)
         for name in names where Self.modelMatches(name, config.model) || names.count == 1 {
             Ollama.unloadSync(baseURL: config.ollamaURL, model: name, timeout: timeout)

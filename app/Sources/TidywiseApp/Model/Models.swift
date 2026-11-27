@@ -21,6 +21,10 @@ struct TidywiseConfig: Codable, Equatable {
     var watch = ["Downloads", "Documents", "Desktop"].map { Paths.home.appending(path: $0).path }
     var model = ModelCatalog.standard.tag
     var ollamaURL = "http://127.0.0.1:11434"
+    /// "ollama", or "openai" for another local server with an OpenAI-style API (LM Studio, mlx-lm, llama.cpp).
+    /// Optional so that a CLI without these settings still decodes; nil is not sent, so the CLI keeps its value.
+    var llmBackend: String?
+    var llmURL: String?
     var profile = ""
     var summaryLanguage = "English"
     var minAgeMinutes: Double = 60
@@ -46,6 +50,8 @@ struct TidywiseConfig: Codable, Equatable {
         case mcpEnabled = "mcp_enabled"
         case rootPath = "root"
         case ollamaURL = "ollama_url"
+        case llmBackend = "llm_backend"
+        case llmURL = "llm_url"
         case minAgeMinutes = "min_age_minutes"
         case minConfidence = "min_confidence"
         case autoApply = "auto_apply"
@@ -58,6 +64,11 @@ struct TidywiseConfig: Codable, Equatable {
     }
 
     var root: URL { URL(fileURLWithPath: rootPath) }
+
+    static let defaultServerURL = "http://127.0.0.1:1234/v1"
+    /// Does the model run through Ollama (the default) – or through another local server?
+    var usesOllama: Bool { (llmBackend ?? "ollama") == "ollama" }
+    var serverURL: String { llmURL ?? Self.defaultServerURL }
 
     func folderName(_ key: String, default name: String) -> String { folderNames[key] ?? name }
 

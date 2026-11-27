@@ -8,6 +8,7 @@ import argparse
 import contextlib
 import dataclasses
 import io
+import json
 import sqlite3
 import tempfile
 import unittest
@@ -259,6 +260,20 @@ class McpAddTest(unittest.TestCase):
             config.save(config.to_dict(config.load(path)), path)
             self.run_add(path)
             self.assertTrue(config.load(path).mcp_enabled)
+
+
+class ConfigSaveTest(unittest.TestCase):
+    def test_save_from_an_older_app_keeps_settings_it_does_not_know(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "config.toml"
+            raw = {**config.to_dict(config.load(path)), "root": td + "/Tidywise", "llm_backend": "openai",
+                   "llm_url": "http://127.0.0.1:8080/v1", "model": "local-model"}
+            config.save(raw, path)
+            from_app = {k: v for k, v in raw.items() if not k.startswith("llm_")} | {"profile": "Gardener"}
+            with mock.patch.object(config, "CONFIG_PATH", path), contextlib.redirect_stdout(io.StringIO()):
+                cli.cmd_config(argparse.Namespace(action="save", json=json.dumps(from_app), as_json=True, rest=[]))
+            cfg = config.load(path)
+            self.assertEqual((cfg.llm_backend, cfg.llm_url, cfg.profile), ("openai", "http://127.0.0.1:8080/v1", "Gardener"))
 
 
 class RenderTest(unittest.TestCase):

@@ -22,6 +22,13 @@ skip_extensions = [".crdownload", ".download", ".part", ".partial", ".tmp", ".ic
 # The local AI model (name as in `ollama pull`) and the address of Ollama.
 model = "gemma4:e4b-it-qat"
 ollama_url = "http://127.0.0.1:11434"
+# "ollama", or "openai" for another local server with an OpenAI-style API: LM Studio (http://127.0.0.1:1234/v1),
+# mlx-lm's `mlx_lm.server` or llama.cpp's `llama-server` (http://127.0.0.1:8080/v1). Then `model` is the name
+# that server uses.
+llm_backend = "ollama"
+llm_url = "http://127.0.0.1:1234/v1"
+# Only true lets Tidywise send file contents to a model server on another computer.
+allow_remote_llm = false
 # A sentence about you helps the model sort.
 profile = ""
 # The language summaries and keywords are written in – best the one you search in.
