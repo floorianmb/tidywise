@@ -75,10 +75,13 @@ def cmd_undo(cfg, store, args):
 
 def cmd_links(cfg, store, args):
     if not cfg.links_enabled:
-        sys.exit("The Chrome history is turned off. Turn it on: tidywise config set links_enabled true")
+        sys.exit("Reading the browser history is turned off. Turn it on: tidywise config set links_enabled true")
     _check_llm(cfg)
-    new, searches = chrome.sync(cfg, store, verbose=not args.quiet, force=True)
+    errors: list[str] = []
+    new, searches = chrome.sync(cfg, store, verbose=not args.quiet, force=True, errors=errors)
     render.render(cfg, store)
+    for e in errors:
+        print(f"! {e}")
     print(f"{new} new links, {searches} searches read.")
 
 
@@ -275,12 +278,12 @@ def cmd_agent(cfg, store, args):
     elif rows:
         print(f"  {len(rows)} suggestions open (auto_apply = false)")
     if cfg.links_enabled:
-        try:
-            new, _ = chrome.sync(cfg, store, verbose=False)
-            if new:
-                print(f"  {new} new links")
-        except (FileNotFoundError, PermissionError) as e:
-            print(f"  Chrome history: {e}")
+        errors: list[str] = []
+        new, _ = chrome.sync(cfg, store, verbose=False, errors=errors)
+        if new:
+            print(f"  {new} new links")
+        for e in errors:  # e.g. “Safari history: [Errno 1] Operation not permitted: …” – the app looks for this
+            print(f"  {e}")
     render.render(cfg, store)
     store.set_meta("agent_last_run", datetime.now().isoformat(timespec="seconds"))
     store.commit()
@@ -300,7 +303,7 @@ def main(argv=None) -> None:
     p.add_argument("ids", nargs="*", type=int)
     p.add_argument("--last", type=int)
     p.add_argument("--all", action="store_true")
-    p = sub.add_parser("links", help="read the Chrome history now")
+    p = sub.add_parser("links", help="read the browser history now")
     p.add_argument("-q", "--quiet", action="store_true")
     p = sub.add_parser("relink", help="clean links and re-sort them (default: only the catch-all topic)")
     p.add_argument("topics", nargs="*", help="topics whose links are re-sorted")

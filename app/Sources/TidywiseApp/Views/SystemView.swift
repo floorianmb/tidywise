@@ -47,7 +47,7 @@ struct SystemView: View {
                 InfoRow("Last checked", Format.relative(state.lastRun))
                 InfoRow("Next check", loaded ? state.nextRunText : "–")
                 if state.config.linksEnabled {
-                    InfoRow("Chrome history read", Format.relative(Format.date(state.meta["chrome_last_run"])))
+                    InfoRow("Browser history read", Format.relative(Format.date(state.meta["chrome_last_run"])))
                 }
                 InfoRow("Last run", state.exitCodeText)
             }

@@ -179,7 +179,7 @@ def _agents_md(cfg, all_topics, moved, links, searches, files_by_topic, links_by
         "",
         "## Finding your way around",
         f"- `{topics_name}/<topic>/_index.md` – per file: date, summary, keywords, download source. The files sit next to it.",
-        f"- `{links_name}/<topic>.md` – link collection from the Chrome history, by month (only if turned on).",
+        f"- `{links_name}/<topic>.md` – link collection from the browser history, by month (only if turned on).",
         f"- `{days_name}/YYYY-MM-DD.md` – what was sorted, searched for and read on that day.",
         f"- `{inbox_name}/_index.md` – files with an unsure classification.",
         f'- Search: `grep -ril "<term>" {short_path(cfg.root)} --include="*.md" --exclude-dir={private_name}`,'

@@ -194,7 +194,7 @@ struct StructurePreview: View {
         out.append(Line(depth: 1, symbol: "questionmark.folder.fill", name: "_inbox", note: "unsure cases wait here for you", tint: .orange))
         out.append(Line(depth: 1, symbol: "lock.fill", name: config.folderName("private", default: "_private"), note: "nobody reads this – neither Tidywise nor an AI assistant"))
         if config.linksEnabled {
-            out.append(Line(depth: 1, symbol: "link", name: "Links", note: "link collection from your Chrome history"))
+            out.append(Line(depth: 1, symbol: "link", name: "Links", note: "link collection from your browser history"))
         }
         out.append(Line(depth: 1, symbol: "calendar", name: config.folderName("days", default: "Days"), note: "what arrived on which day"))
         out.append(Line(depth: 1, symbol: "doc.text", name: "AGENTS.md", note: "guide for AI assistants like Claude"))

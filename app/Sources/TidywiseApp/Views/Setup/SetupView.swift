@@ -96,7 +96,7 @@ struct SetupView: View {
                               off: "Off (recommended to start): Tidywise only suggests, you confirm under “Review”.",
                               isOn: $draft.autoApply)
                 Divider()
-                SettingToggle(symbol: "link", title: "Chrome history as a link collection",
+                SettingToggle(symbol: "link", title: "Browser history as a link collection",
                               on: "On: Pages you visit are collected by topic. Everything stays on your Mac.",
                               off: "Off: Tidywise doesn't read your browser history.",
                               isOn: $draft.linksEnabled)
