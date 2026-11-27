@@ -36,6 +36,9 @@ it doesn't ship itself:
 | Python 3.12+ | reads and moves the files | [python.org](https://www.python.org/downloads/macos/) or `brew install python` |
 | [Ollama](https://ollama.com/download) | runs the AI model | `brew install ollama` or the app helps during setup |
 
+Already running models with [LM Studio](https://lmstudio.ai), `mlx-lm` or `llama.cpp`? Tidywise can use that
+server instead of Ollama – see [Another local model server](#another-local-model-server).
+
 The app tells you if one of them is missing.
 
 ### Homebrew
@@ -137,14 +140,33 @@ Tidywise/                    (default: ~/Downloads/Tidywise – you choose)
 - Every move is recorded in `~/Library/Application Support/tidywise/moves.jsonl` and can be undone
   (in the app: file → *Put back*; in the terminal: `tidywise undo`).
 - The AI is told not to write ID, account or similar numbers into summaries.
-- **Nothing leaves your Mac.** Tidywise only talks to Ollama on `127.0.0.1`. It needs the internet once:
-  to download the model from ollama.com.
+- **Nothing leaves your Mac.** Tidywise only talks to a model server on this Mac (Ollama, or the server you
+  chose) – an address on another computer is refused unless you set `allow_remote_llm = true`. It needs the
+  internet once: to download the model from ollama.com.
 - The Chrome history is only read if you turn it on.
 - The background service only runs while the app is open. The **AI** switch stops running work and frees
   the memory immediately.
 
 Summaries and keywords are written in English by default. Under Settings → AI model you can pick the language
 you actually search in.
+
+### Another local model server
+
+Ollama is the default because the app can install it and download models with one click. If you already run
+models through **LM Studio**, **mlx-lm** (`mlx_lm.server`) or **llama.cpp** (`llama-server`), Tidywise can use
+their OpenAI-style API instead: Settings → AI model → *Runs on* → *Another local server*, then pick one of the
+server's models. In the terminal:
+
+```bash
+tidywise config set llm_backend openai
+tidywise config set llm_url http://127.0.0.1:1234/v1    # LM Studio; mlx-lm and llama.cpp: http://127.0.0.1:8080/v1
+tidywise config set model qwen/qwen3-vl-8b              # the name the server lists
+tidywise status                                         # checks that the server answers and has the model
+```
+
+Tidywise asks for answers in a JSON schema and falls back to describing the schema in the prompt for servers
+that can't enforce one. A model that understands images also recognizes photos and scanned PDFs. Only
+addresses on this Mac (`127.0.0.1`, `localhost`) are accepted.
 
 ## Command line
 
@@ -216,7 +238,7 @@ tidywise/                 Python: the actual work
   config.py             read, validate and write settings (the only place that knows the file format)
   organize.py           find loose files, classify, move, put back
   extract.py            text excerpt, image and download source of a file
-  llm.py                talking to Ollama
+  llm.py                talking to the model (Ollama or an OpenAI-style local server)
   chrome.py             Chrome history as a link collection
   render.py             AGENTS.md and the index files
   service.py            background service (launchd)
@@ -275,7 +297,7 @@ don't quietly cost quality. The reference is your own hand-classified links (the
 
 | What you see | What helps |
 |---|---|
-| "AI not reachable" | Ollama isn't running – click *Start Ollama* in the app |
+| "AI not reachable" | Ollama isn't running – click *Start Ollama* in the app. With another server: start it (LM Studio: Developer → Start Server) and check the address |
 | "AI model missing" | *Download model* on the Home page or under Settings → AI model |
 | "macOS isn't letting Tidywise access your files yet" | Allow Full Disk Access for the helper program (see above). After a Python update through Homebrew its path changes – run `./install.sh` once and allow access again |
 | "Python is missing" | Install Python 3.12 or newer (python.org or `brew install python`) – the app continues on its own |

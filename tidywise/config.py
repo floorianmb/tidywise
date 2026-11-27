@@ -25,6 +25,9 @@ FALLBACK = "other"
 LEGACY_FALLBACK = "sonstiges"
 RESERVED_SLUGS = {"new", "neu", "_inbox", "_private", "_privat"}
 SUBFOLDERS = ("none", "year", "month")
+# How Tidywise talks to the local model: Ollama's own API, or the OpenAI-style API that LM Studio,
+# mlx-lm (`mlx_lm.server`) and llama.cpp (`llama-server`) offer.
+LLM_BACKENDS = ("ollama", "openai")
 # Icons and colours for the topic slugs older (German) configurations use, so they keep their look.
 LEGACY_STYLES = {
     "persoenliche-dokumente": ("person.text.rectangle.fill", "orange"), "finanzen": ("eurosign.circle.fill", "green"),
@@ -59,6 +62,9 @@ class Config:
     watch: list[Path]
     model: str
     ollama_url: str
+    llm_backend: str
+    llm_url: str
+    allow_remote_llm: bool
     profile: str
     summary_language: str
     min_age_minutes: float
@@ -74,6 +80,11 @@ class Config:
     skip_extensions: list[str]
     topics: list[Topic]
     state_dir: Path = field(default_factory=lambda: STATE_DIR)
+
+    @property
+    def llm_endpoint(self) -> str:
+        """The address of the model server in use."""
+        return self.ollama_url if self.llm_backend == "ollama" else self.llm_url
 
     @property
     def db_path(self) -> Path:
@@ -227,11 +238,23 @@ def _from_raw(raw: dict, *, strict: bool = False) -> Config:
             raise ConfigError("Every folder Tidywise looks in needs a full path.")
         if not str(raw.get("model") or "").strip():
             raise ConfigError("No AI model is selected.")
+        if str(raw.get("llm_backend") or "ollama").strip() not in LLM_BACKENDS:
+            raise ConfigError(f"“llm_backend” is one of: {', '.join(LLM_BACKENDS)}.")
+        for key in ("ollama_url", "llm_url"):
+            url = str(raw.get(key) or "").strip()
+            if url and not url.startswith(("http://", "https://")):
+                raise ConfigError(f"“{key}” needs to start with http:// or https://.")
+            if url and not raw.get("allow_remote_llm") and not is_local_url(url):
+                raise ConfigError(f"“{key}” points to another computer. Tidywise only talks to a model on this Mac "
+                                  "(127.0.0.1 or localhost) – unless you set allow_remote_llm = true.")
     return Config(
         root=root,
         watch=watch,
         model=str(raw.get("model") or "gemma4:e4b-it-qat").strip(),
         ollama_url=str(raw.get("ollama_url") or "http://127.0.0.1:11434").strip().rstrip("/"),
+        llm_backend=backend if (backend := str(raw.get("llm_backend") or "ollama").strip()) in LLM_BACKENDS else "ollama",
+        llm_url=str(raw.get("llm_url") or "http://127.0.0.1:1234/v1").strip().rstrip("/"),
+        allow_remote_llm=bool(raw.get("allow_remote_llm", False)),
         profile=str(raw.get("profile") or "").strip(),
         summary_language=str(raw.get("summary_language") or "English").strip(),
         min_age_minutes=number("min_age_minutes", 60, 0, 60 * 24 * 365),
@@ -248,6 +271,22 @@ def _from_raw(raw: dict, *, strict: bool = False) -> Config:
         skip_extensions=_extensions(raw.get("skip_extensions", [])),
         topics=_topics(raw.get("topics", []), strict=strict),
     )
+
+
+def is_local_url(url: str) -> bool:
+    """Does the address point to this Mac?"""
+    import ipaddress
+    from urllib.parse import urlsplit
+    try:
+        host = (urlsplit(url).hostname or "").lower()
+    except ValueError:
+        return False
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 def _extensions(values) -> list[str]:
@@ -303,6 +342,9 @@ def to_dict(cfg: Config, path: Path | None = None) -> dict:
         "watch": [str(p) for p in cfg.watch],
         "model": cfg.model,
         "ollama_url": cfg.ollama_url,
+        "llm_backend": cfg.llm_backend,
+        "llm_url": cfg.llm_url,
+        "allow_remote_llm": cfg.allow_remote_llm,
         "profile": cfg.profile,
         "summary_language": cfg.summary_language,
         "min_age_minutes": cfg.min_age_minutes,
@@ -351,6 +393,12 @@ def to_toml(cfg: Config) -> str:
         "# The local AI model (name as in `ollama pull`) and the address of Ollama.",
         f"model = {_q(cfg.model)}",
         f"ollama_url = {_q(cfg.ollama_url)}",
+        '# "ollama", or "openai" for another local server with an OpenAI-style API – LM Studio, mlx-lm, llama.cpp.',
+        "# Then `model` is the name that server uses, and llm_url its address including /v1.",
+        f"llm_backend = {_q(cfg.llm_backend)}",
+        f"llm_url = {_q(cfg.llm_url)}",
+        "# Only true lets Tidywise send file contents to a model server on another computer.",
+        f"allow_remote_llm = {str(cfg.allow_remote_llm).lower()}",
         "# A sentence about you helps the model sort, e.g. \"Architecture student, working part-time at a café\".",
         f"profile = {_q(cfg.profile)}",
         "# The language summaries and keywords are written in – best the one you search in.",

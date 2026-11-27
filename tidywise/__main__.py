@@ -146,7 +146,9 @@ def _parse_value(key: str, value: str):
 def cmd_config(args) -> None:
     try:
         if args.action == "save":  # this is how the app saves: the whole configuration as JSON
-            config.save(json.loads(args.json if args.json is not None else sys.stdin.read()))
+            incoming = json.loads(args.json if args.json is not None else sys.stdin.read())
+            # Keep settings the sender doesn't know about (e.g. an older app), instead of resetting them
+            config.save({**config.to_dict(load()), **incoming} if isinstance(incoming, dict) else incoming)
         elif args.action == "init":
             if not config.exists():
                 config.save(config.to_dict(load()))

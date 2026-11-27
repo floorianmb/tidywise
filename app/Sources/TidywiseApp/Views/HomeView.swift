@@ -152,10 +152,16 @@ struct HeroCard: View {
             return "A few steps are still missing."
         case .offline:
             if let busy = state.ollamaBusy { return busy }
+            if !state.config.usesOllama {
+                return "The model server at \(state.config.serverURL) doesn't answer. Start it in LM Studio, or run mlx_lm.server or llama-server."
+            }
             return OllamaSetup.isInstalled
                 ? "Ollama isn't running. Without this local AI program, Tidywise can't sort anything."
                 : "Ollama isn't installed. This program runs the AI on your Mac."
         case .noModel:
+            if !state.config.usesOllama {
+                return "The model server doesn't offer \(state.config.model). Pick one of its models in Settings."
+            }
             if let d = state.download, d.failed { return "The download didn't work: \(d.detail)" }
             if state.download != nil { return "\(state.config.model) – just this once, after that everything runs without internet." }
             return "\(state.config.model) needs to be downloaded once. After that everything runs without internet."
@@ -190,7 +196,9 @@ struct HeroCard: View {
             case .starting, .working, .setup:
                 EmptyView()
             case .noModel:
-                if state.download?.failed == false {
+                if !state.config.usesOllama {
+                    Button("Model settings") { state.openSettings(.model) }.buttonStyle(.borderedProminent)
+                } else if state.download?.failed == false {
                     Button("Cancel") { state.cancelDownload() }
                 } else {
                     Button { state.downloadModel(state.config.model, select: false) } label: {
@@ -204,7 +212,9 @@ struct HeroCard: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(state.stopping)
             case .offline:
-                if OllamaSetup.isInstalled {
+                if !state.config.usesOllama {
+                    Button("Model settings") { state.openSettings(.model) }.buttonStyle(.borderedProminent)
+                } else if OllamaSetup.isInstalled {
                     Button { state.startOllama() } label: { Label("Start Ollama", systemImage: "play.fill") }
                         .buttonStyle(.borderedProminent)
                         .disabled(state.ollamaBusy != nil)

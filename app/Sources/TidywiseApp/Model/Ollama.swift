@@ -100,3 +100,23 @@ struct Ollama {
         _ = requestSync(req, timeout: timeout)
     }
 }
+
+/// Another local model server with an OpenAI-style API: LM Studio, mlx-lm (`mlx_lm.server`), llama.cpp (`llama-server`).
+/// Tidywise only asks it which models it offers – loading and unloading is up to that server.
+struct LocalServer {
+    let baseURL: String
+
+    private struct Models: Decodable {
+        struct Model: Decodable { let id: String }
+        let data: [Model]
+    }
+
+    /// The names of the models the server offers. `nil` if it doesn't respond.
+    func modelIDs() async -> [String]? {
+        guard let url = URL(string: baseURL + "/models") else { return nil }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 2
+        guard let (data, _) = try? await URLSession.shared.data(for: req) else { return nil }
+        return (try? JSONDecoder().decode(Models.self, from: data))?.data.map(\.id)
+    }
+}

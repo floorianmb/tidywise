@@ -101,7 +101,8 @@ struct MenuBarView: View {
         case .starting: "Loading data"
         case .setup: "Open Tidywise to set it up"
         case .paused: state.stopping ? "Stopping …" : "Won't sort anything until you turn it on"
-        case .offline: "Ollama isn't running"
+        case .offline: "\(state.serverName) isn't running"
+        case .noModel where !state.config.usesOllama: "Pick a model in Settings"
         case .noModel: state.download.map { $0.failed ? "Download failed" : $0.detail } ?? "Open Tidywise to download it"
         case .working: state.activity?.isAlive == true ? (state.activity?.label ?? state.activity?.task ?? "") : (state.runningCommand ?? "")
         case .noService: "Only sorts when you ask"
